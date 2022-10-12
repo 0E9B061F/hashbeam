@@ -18,6 +18,67 @@ API = 'https://api.imgur.com/3/image'
 class ConfigurationError(Exception):
     pass
 
+class UploadError(Exception):
+    pass
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+
+class ImgurHandler:
+    def __init__(self, rc):
+        self.rc = rc
+        if not self.rc.has('imgur'):
+            raise ConfigurationError()
+        self.conf = self.rc.get('imgur')
+        if not 'client_id' in self.conf:
+            raise ConfigurationError()
+        self.params = dict(
+            client_id=self.conf["client_id"]
+        )
+
+    def upload(self, path):
+        file = open(path, 'rb')
+        files = dict(
+            image=(None, file),
+            name=(None, ''),
+            type=(None, 'file'),
+        )
+        try:
+            r = requests.post(API, files=files, params=self.params)
+            if (r.status_code == 200):
+                data = json.loads(r.text)
+                if (data['status'] == 200):
+                    return data['data']['link']
+                else:
+                    raise UploadError()
+            else:
+                raise UploadError()
+        except:
+            raise UploadError()
+
+handlers = {
+    "imgur": ImgurHandler,
+}
+
+class RC:
+    def __init__(self, path):
+        if os.path.isfile(path):
+            data = open(path, 'r')
+            self.rc = json.load(data)
+        else:
+            self.rc = {}
+        if "handler" not in self.rc:
+            raise ConfigurationError('no handler configured')
+        if self.rc['handler'] not in handlers:
+            raise ConfigurationError('invalid handler')
+        self.handler = handlers[self.rc['handler']](self)
+
+    def has(self, prop):
+        return prop in self.rc
+
+    def get(self, prop):
+        return self.rc[prop]
+
 class HashDB:
     def __init__(self, path):
         self.path = path
@@ -40,35 +101,21 @@ class HashDB:
     def save(self):
         json.dump(self.data, open(self.path, 'w'))
 
-class RC:
-    def __init__(self, path):
-        if os.path.isfile(path):
-            data = open(path, 'r')
-            self.rc = json.load(data)
-        else:
-            self.rc = {}
-        if "client_id" not in self.rc:
-            raise ConfigurationError("run control malformed")
-
-    def get(self, prop):
-        return self.rc[prop]
-
 class ImgDB:
     def __init__(self, rc):
         self.rc = rc
-        self.client_id = self.rc.get("client_id")
-        self.params = dict(
-            client_id=self.client_id
-        )
         self.hashdb = HashDB(HASHDB)
 
     def link(self, path):
         hash = self.hash(path)
         link = self.hashdb.get(hash)
         if link == False:
-            link = self.upload(path)
-            if link != False:
-                self.hashdb.insert(hash, link)
+            try:
+                link = self.rc.handler.upload(path)
+            except UploadError:
+                eprint('ERROR: upload failed')
+                exit(1)
+            self.hashdb.insert(hash, link)
         return link
   
     def hash(self, path):
@@ -81,34 +128,27 @@ class ImgDB:
                 md5.update(data)
         return md5.hexdigest()
 
-    def upload(self, path):
-        file = open(path, 'rb')
-        files = dict(
-            image=(None, file),
-            name=(None, ''),
-            type=(None, 'file'),
-        )
-        r = requests.post(API, files=files, params=self.params)
-        if (r.status_code == 200):
-            data = json.loads(r.text)
-            if (data['status'] == 200):
-                return data['data']['link']
-            else:
-                return False
-        else:
-            return False
-
 def execute():
     pathlib.Path(HOME).mkdir(parents=True, exist_ok=True)
 
     parser = argparse.ArgumentParser(description='Get a publicly hosted URL for an image on your harddrive.')
-    parser.add_argument('path',
+    parser.add_argument(
+        '-c',
+        dest='rcpath',
+        type=str,
+        nargs='?',
+        default=HASHRC,
+        help='Config file to read from',
+    )
+    parser.add_argument(
+        'path',
         metavar='PATH',
         type=str,
         nargs='?',
         help='Image to link'
     )
-    parser.add_argument('stdin',
+    parser.add_argument(
+        'stdin',
         nargs='?',
         type=argparse.FileType('r'),
         default=(None if sys.stdin.isatty() else sys.stdin),
@@ -121,18 +161,14 @@ def execute():
     elif args.stdin:
         path = args.stdin.read().splitlines()[0]
     else:
-        print("ERROR: no input given")
+        eprint("ERROR: no input given")
         exit(1)
 
     try:
-        rc = RC(HASHRC)
+        rc = RC(args.rcpath)
     except ConfigurationError:
-        print(f"ERROR: run control malformed ({HASHRC})")
+        eprint(f"ERROR: run control malformed ({args.rcpath})")
         exit(1)
     imgdb = ImgDB(rc)
     link = imgdb.link(path)
-    if link == False:
-        print('ERROR: failed getting link')
-        exit(1)
-    else:
-        print(link, end='')
+    print(link, end='')
