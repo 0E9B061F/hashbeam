@@ -1,0 +1,1 @@
+Get a public link for a local image, uploading only as necessary
