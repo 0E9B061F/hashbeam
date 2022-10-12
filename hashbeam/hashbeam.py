@@ -98,39 +98,41 @@ class ImgDB:
         else:
             return False
 
-pathlib.Path(HOME).mkdir(parents=True, exist_ok=True)
+def execute():
+    pathlib.Path(HOME).mkdir(parents=True, exist_ok=True)
 
-parser = argparse.ArgumentParser(description='Get a publicly hosted URL for an image on your harddrive.')
-parser.add_argument('path',
-    metavar='PATH',
-    type=str,
-    nargs='?',
-    help='Image to link'
-)
-parser.add_argument('stdin',
-  nargs='?',
-  type=argparse.FileType('r'),
-  default=(None if sys.stdin.isatty() else sys.stdin),
-    help='Read path from STDIN'
-)
-args = parser.parse_args()
-if args.path:
-  path = args.path
-elif args.stdin:
-  path = args.stdin.read().splitlines()[0]
-else:
-  print("ERROR: no input given")
-  exit(1)
+    parser = argparse.ArgumentParser(description='Get a publicly hosted URL for an image on your harddrive.')
+    parser.add_argument('path',
+        metavar='PATH',
+        type=str,
+        nargs='?',
+        help='Image to link'
+    )
+    parser.add_argument('stdin',
+        nargs='?',
+        type=argparse.FileType('r'),
+        default=(None if sys.stdin.isatty() else sys.stdin),
+        help='Read path from STDIN'
+    )
+    args = parser.parse_args()
+    
+    if args.path:
+        path = args.path
+    elif args.stdin:
+        path = args.stdin.read().splitlines()[0]
+    else:
+        print("ERROR: no input given")
+        exit(1)
 
-try:
-    rc = RC(HASHRC)
-except ConfigurationError:
-    print(f"ERROR: run control malformed ({HASHRC})")
-    exit(1)
-imgdb = ImgDB(rc)
-link = imgdb.link(path)
-if link == False:
-    print('ERROR: failed getting link')
-    exit(1)
-else:
-    print(link, end='')
+    try:
+        rc = RC(HASHRC)
+    except ConfigurationError:
+        print(f"ERROR: run control malformed ({HASHRC})")
+        exit(1)
+    imgdb = ImgDB(rc)
+    link = imgdb.link(path)
+    if link == False:
+        print('ERROR: failed getting link')
+        exit(1)
+    else:
+        print(link, end='')

@@ -1,22 +1,18 @@
-[build-system]
-requires = ["flit_core>=3.2"]
-build-backend = "flit_core.buildapi"
-
-[project]
+[tool.poetry]
 name = "hashbeam"
-version = "0.1.0"
-authors = [
-  { name="0E9B061F", email="0E9B061F@protonmail.com" },
-]
+version = "0.2.1"
 description = "Get a public link for a local image, uploading only as necessary"
+authors = ["0E9B061F <0E9B061F@protonmail.com>"]
 readme = "README.md"
-requires-python = ">=3.1"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-]
 
-[project.urls]
-"Homepage" = "https://github.com/0E9B061F/hashbeam"
-"Bug Tracker" = "https://github.com/0E9B061F/hashbeam/issues"
+[tool.poetry.dependencies]
+python = "^3.10,<3.11"
+requests = "^2.28.1"
+xdg = "^5.1.1"
+
+[tool.poetry.scripts]
+hashbeam = 'hashbeam.hashbeam:execute'
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
