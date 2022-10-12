@@ -20,7 +20,7 @@ which should look like:
 {
   "handler": "imgur",
   "imgur": {
-    "client_id": "54cd5ba3aa93f4e"
+    "client_id": "CLIENT_ID"
   }
 }
 ```
