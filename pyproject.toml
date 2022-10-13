@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "hashbeam"
-version = "0.4.0"
+version = "0.4.1"
 description = "Get a public link for a local image, uploading only as necessary"
 authors = ["0E9B061F <0E9B061F@protonmail.com>"]
 readme = "README.md"

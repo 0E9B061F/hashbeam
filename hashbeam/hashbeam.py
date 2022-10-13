@@ -52,7 +52,6 @@ class ImgurHandler:
         try:
             r = requests.post(API, files=files, params=self.params)
             if (r.status_code == 200):
-                print(r.text)
                 data = json.loads(r.text)
                 if data['success']:
                     return {
@@ -76,7 +75,6 @@ class ImgurHandler:
             f'https://api.imgur.com/3/image/{dhash}',
             params=self.params
         )
-        print(r)
         if r.status_code != 200:
             raise DeleteError('delete failed')
         data = json.loads(r.text)
@@ -178,6 +176,7 @@ class ImgDB:
         return links
 
     def delete(self, hashes):
+        out = []
         for hash in hashes:
             item = self.hashdb.get(hash)
             if item:
@@ -185,13 +184,15 @@ class ImgDB:
                     handler = self.rc.getHandler(item['type'])
                     handler.delete(item)
                     self.hashdb.remove(hash)
+                    out.append(hash)
                 except DeleteError as e:
                     eprint(f"ERROR: {e} ({hash})")
             else:
                 eprint(f"ERROR: hash not found ({hash})")
+        return out
 
     def deleteFile(self, paths):
-        self.delete([self.hash(path) for path in paths])
+        return self.delete([self.hash(path) for path in paths])
 
     def hash(self, path):
         md5 = hashlib.md5()
@@ -287,14 +288,15 @@ def execute():
 
     if args.delete:
         if args.hash:
-            imgdb.delete(hash)
+            hashes = imgdb.delete(hash)
         else:
-            imgdb.deleteFile(path)
+            hashes = imgdb.deleteFile(path)
+        hashes = [f"DELETED: {hash}" for hash in hashes]
+        print("\n".join(hashes), end='')
 
     else:
         if args.hash:
             links = imgdb.linkHash(hash)
         else:
             links = imgdb.link(path)
-        for link in links:
-            print(link)
+        print("\n".join(links), end='')
