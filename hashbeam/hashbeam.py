@@ -21,6 +21,12 @@ class ConfigurationError(Exception):
 class UploadError(Exception):
     pass
 
+class DeleteError(Exception):
+    pass
+
+class DBError(Exception):
+    pass
+
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
@@ -28,10 +34,10 @@ class ImgurHandler:
     def __init__(self, rc):
         self.rc = rc
         if not self.rc.has('imgur'):
-            raise ConfigurationError()
+            raise ConfigurationError("imgur handler configuration missing")
         self.conf = self.rc.get('imgur')
         if not 'client_id' in self.conf:
-            raise ConfigurationError()
+            raise ConfigurationError("client_id missing for imgur handler")
         self.params = dict(
             client_id=self.conf["client_id"]
         )
@@ -46,15 +52,36 @@ class ImgurHandler:
         try:
             r = requests.post(API, files=files, params=self.params)
             if (r.status_code == 200):
+                print(r.text)
                 data = json.loads(r.text)
-                if (data['status'] == 200):
-                    return data['data']['link']
+                if data['success']:
+                    return {
+                        'type': 'imgur',
+                        'link': data['data']['link'],
+                        'deletehash': data['data']['deletehash'],
+                    }
                 else:
-                    raise UploadError()
+                    raise UploadError('upload failed')
             else:
-                raise UploadError()
+                raise UploadError('upload failed')
         except:
-            raise UploadError()
+            raise UploadError('upload failed')
+
+    def delete(self, item):
+        try:
+            dhash = item['deletehash']
+        except IndexError:
+            raise DeleteError('no deletion hash for upload. unable to delete')
+        r = requests.delete(
+            f'https://api.imgur.com/3/image/{dhash}',
+            params=self.params
+        )
+        print(r)
+        if r.status_code != 200:
+            raise DeleteError('delete failed')
+        data = json.loads(r.text)
+        if not data['success']:
+            raise DeleteError('delete failed')
 
 handlers = {
     "imgur": ImgurHandler,
@@ -71,7 +98,12 @@ class RC:
             raise ConfigurationError('no handler configured')
         if self.rc['handler'] not in handlers:
             raise ConfigurationError('invalid handler')
-        self.handler = handlers[self.rc['handler']](self)
+        self.handler = self.getHandler(self.rc['handler'])
+
+    def getHandler(self, name):
+        if name not in handlers:
+            raise ConfigurationError('invalid handler')
+        return handlers[name](self)
 
     def has(self, prop):
         return prop in self.rc
@@ -89,35 +121,78 @@ class HashDB:
             self.data = {}
 
     def get(self, hash):
-        if hash in self.data:
+        try:
             return self.data[hash]
-        else:
-            return False
+        except:
+            return None
 
-    def insert(self, hash, link):
-        self.data[hash] = link
+    def insert(self, hash, item):
+        self.data[hash] = item
+        self.save()
+
+    def remove(self, hash):
+        self.data.pop(hash, None)
         self.save()
 
     def save(self):
         json.dump(self.data, open(self.path, 'w'))
+
+    def print(self):
+        for hash, item in self.data.items():
+            print(f"{hash}: {item['link']}")
+
+    def printHashes(self):
+        for hash, item in self.data.items():
+            print(hash)
 
 class ImgDB:
     def __init__(self, rc):
         self.rc = rc
         self.hashdb = HashDB(HASHDB)
 
-    def link(self, path):
-        hash = self.hash(path)
-        link = self.hashdb.get(hash)
-        if link == False:
+    def link(self, paths):
+        links = []
+        for path in paths:
             try:
-                link = self.rc.handler.upload(path)
-            except UploadError:
-                eprint('ERROR: upload failed')
-                exit(1)
-            self.hashdb.insert(hash, link)
-        return link
+                hash = self.hash(path)
+                item = self.hashdb.get(hash)
+                if not item:
+                    item = self.rc.handler.upload(path)
+                    self.hashdb.insert(hash, item)
+                links.append(item['link'])
+            except UploadError as e:
+                eprint(f"ERROR: {e} ({path})")
+        return links
   
+    def linkHash(self, hashes):
+        links = []
+        for hash in hashes:
+            try:
+                item = self.hashdb.get(hash)
+                if item:
+                    links.append(item['link'])
+                else:
+                    raise DBError('hash not found')
+            except DBError as e:
+                eprint(f"ERROR: {e} ({hash})")
+        return links
+
+    def delete(self, hashes):
+        for hash in hashes:
+            item = self.hashdb.get(hash)
+            if item:
+                try:
+                    handler = self.rc.getHandler(item['type'])
+                    handler.delete(item)
+                    self.hashdb.remove(hash)
+                except DeleteError as e:
+                    eprint(f"ERROR: {e} ({hash})")
+            else:
+                eprint(f"ERROR: hash not found ({hash})")
+
+    def deleteFile(self, paths):
+        self.delete([self.hash(path) for path in paths])
+
     def hash(self, path):
         md5 = hashlib.md5()
         with open(path, 'rb') as f:
@@ -127,6 +202,12 @@ class ImgDB:
                     break
                 md5.update(data)
         return md5.hexdigest()
+
+    def list(self):
+        self.hashdb.print()
+
+    def listHashes(self):
+        self.hashdb.printHashes()
 
 def execute():
     pathlib.Path(HOME).mkdir(parents=True, exist_ok=True)
@@ -141,10 +222,31 @@ def execute():
         help='Config file to read from',
     )
     parser.add_argument(
+        '-l',
+        dest='list',
+        action='store_true',
+        default=False,
+        help='List stored hashes',
+    )
+    parser.add_argument(
+        '-d',
+        dest='delete',
+        action='store_true',
+        default=False,
+        help='Delete uploaded image',
+    )
+    parser.add_argument(
+        '-H',
+        dest='hash',
+        action='store_true',
+        default=False,
+        help='Specify a stored item by its hash',
+    )
+    parser.add_argument(
         'path',
         metavar='PATH',
         type=str,
-        nargs='?',
+        nargs='*',
         help='Image to link'
     )
     parser.add_argument(
@@ -155,20 +257,44 @@ def execute():
         help='Read path from STDIN'
     )
     args = parser.parse_args()
-    
+
     if args.path:
         path = args.path
     elif args.stdin:
-        path = args.stdin.read().splitlines()[0]
-    else:
+        path = args.stdin.read().splitlines()
+    elif not args.list:
         eprint("ERROR: no input given")
         exit(1)
+    else:
+        path = []
+
+    hash = path
 
     try:
         rc = RC(args.rcpath)
-    except ConfigurationError:
+    except ConfigurationError as e:
         eprint(f"ERROR: run control malformed ({args.rcpath})")
+        eprint(f"       {e}")
         exit(1)
     imgdb = ImgDB(rc)
-    link = imgdb.link(path)
-    print(link, end='')
+
+    if args.list:
+        if args.hash:
+            imgdb.listHashes()
+        else:
+            imgdb.list()
+        exit(0)
+
+    if args.delete:
+        if args.hash:
+            imgdb.delete(hash)
+        else:
+            imgdb.deleteFile(path)
+
+    else:
+        if args.hash:
+            links = imgdb.linkHash(hash)
+        else:
+            links = imgdb.link(path)
+        for link in links:
+            print(link)
